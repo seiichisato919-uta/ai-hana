@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getEmbedding } from "@/lib/openai";
 import { queryVectors } from "@/lib/pinecone";
+import { appendSearchLog } from "@/lib/google-sheets";
 
 export async function POST(req: NextRequest) {
   try {
@@ -11,6 +12,11 @@ export async function POST(req: NextRequest) {
         { status: 400 }
       );
     }
+
+    // 検索ログをスプレッドシートに記録（レスポンスをブロックしない）
+    appendSearchLog(query).catch((err) =>
+      console.error("Failed to append search log:", err)
+    );
 
     // 1. ユーザーの入力をベクトル化
     const embedding = await getEmbedding(query);
