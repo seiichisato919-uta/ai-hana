@@ -1,0 +1,129 @@
+{
+  "name": "AI-Hana コンテンツ取得API",
+  "nodes": [
+    {
+      "parameters": {
+        "content": "## セットアップ手順\n\n1. **クレデンシャル作成**\n   - 「Pinecone API Key」: HTTP Header Auth → Name: `Api-Key` / Value: `pcsk_xxxx`\n\n2. **Pinecone Fetch ノード**: クレデンシャルを選択 + URL書き換え\n   - `YOUR_PINECONE_HOST` → 実際のホスト"
+      },
+      "id": "sticky-setup",
+      "name": "Sticky Note",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [40, 40]
+    },
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "ai-hana-content",
+        "responseMode": "responseNode",
+        "options": {}
+      },
+      "id": "webhook-content",
+      "name": "Webhook",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2.1,
+      "position": [250, 300],
+      "webhookId": "ai-hana-content",
+      "onError": "continueRegularOutput"
+    },
+    {
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "language": "javaScript",
+        "jsCode": "// Webhook ボディから ID を取り出す\nconst id = $input.first().json.body?.id;\n\nif (!id) {\n  return [{ json: { error: 'id is required' } }];\n}\n\nreturn [{ json: { id: String(id) } }];"
+      },
+      "id": "code-extract-id",
+      "name": "Extract ID",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [500, 300]
+    },
+    {
+      "parameters": {
+        "method": "GET",
+        "url": "https://YOUR_PINECONE_HOST/vectors/fetch",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendQuery": true,
+        "queryParameters": {
+          "parameters": [
+            { "name": "ids", "value": "={{ $json.id }}" }
+          ]
+        },
+        "options": {
+          "timeout": 30000
+        }
+      },
+      "id": "http-pinecone-fetch",
+      "name": "Pinecone Fetch",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.4,
+      "position": [750, 300],
+      "onError": "continueRegularOutput"
+    },
+    {
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "language": "javaScript",
+        "jsCode": "// Pinecone レスポンスからコンテンツデータを抽出（category, audio_url 含む）\nconst response = $input.first().json;\nconst id = $('Extract ID').first().json.id;\nconst record = response.vectors?.[id];\n\nif (!record) {\n  return [{ json: { error: 'Content not found' } }];\n}\n\nreturn [{\n  json: {\n    id: id,\n    title: record.metadata?.title || '',\n    body: record.metadata?.body || '',\n    url: record.metadata?.url || '',\n    category: record.metadata?.category || '',\n    audio_url: record.metadata?.audio_url || ''\n  }\n}];"
+      },
+      "id": "code-format-response",
+      "name": "Format Response",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [1000, 300]
+    },
+    {
+      "parameters": {
+        "respondWith": "firstIncomingItem",
+        "options": {
+          "responseHeaders": {
+            "entries": [
+              { "name": "Access-Control-Allow-Origin", "value": "*" },
+              { "name": "Access-Control-Allow-Headers", "value": "Content-Type" }
+            ]
+          }
+        }
+      },
+      "id": "respond-content",
+      "name": "Respond to Webhook",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.5,
+      "position": [1250, 300]
+    }
+  ],
+  "connections": {
+    "Webhook": {
+      "main": [
+        [
+          { "node": "Extract ID", "type": "main", "index": 0 }
+        ]
+      ]
+    },
+    "Extract ID": {
+      "main": [
+        [
+          { "node": "Pinecone Fetch", "type": "main", "index": 0 }
+        ]
+      ]
+    },
+    "Pinecone Fetch": {
+      "main": [
+        [
+          { "node": "Format Response", "type": "main", "index": 0 }
+        ]
+      ]
+    },
+    "Format Response": {
+      "main": [
+        [
+          { "node": "Respond to Webhook", "type": "main", "index": 0 }
+        ]
+      ]
+    }
+  },
+  "pinData": {},
+  "settings": {
+    "executionOrder": "v1"
+  }
+}

@@ -1,0 +1,204 @@
+{
+  "name": "AI-Hana 検索API",
+  "nodes": [
+    {
+      "parameters": {
+        "content": "## セットアップ手順\n\n1. **クレデンシャル作成（2つ）**\n   - 「OpenAI API Key」: HTTP Header Auth → Name: `Authorization` / Value: `Bearer sk-proj-xxxx`\n   - 「Pinecone API Key」: HTTP Header Auth → Name: `Api-Key` / Value: `pcsk_xxxx`\n\n2. **各 HTTP Request ノードでクレデンシャルを選択**\n\n3. **Pinecone Query ノードの URL を書き換え**\n   - `YOUR_PINECONE_HOST` → 実際のホスト (例: `https://ai-hana-xxx.svc.xxx.pinecone.io`)\n\n4. **Google Sheets Log ノードのクレデンシャルとシートIDを設定**"
+      },
+      "id": "sticky-setup",
+      "name": "Sticky Note",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [40, 40]
+    },
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "ai-hana-search",
+        "responseMode": "responseNode",
+        "options": {}
+      },
+      "id": "webhook-search",
+      "name": "Webhook",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2.1,
+      "position": [250, 300],
+      "webhookId": "ai-hana-search",
+      "onError": "continueRegularOutput"
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://api.openai.com/v1/embeddings",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendBody": true,
+        "contentType": "json",
+        "specifyBody": "keypair",
+        "bodyParameters": {
+          "parameters": [
+            { "name": "model", "value": "text-embedding-3-small" },
+            { "name": "input", "value": "={{ $json.body.query }}" }
+          ]
+        },
+        "options": {
+          "timeout": 30000
+        }
+      },
+      "id": "http-openai-embedding",
+      "name": "OpenAI Embedding",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.4,
+      "position": [500, 300],
+      "onError": "continueRegularOutput"
+    },
+    {
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "language": "javaScript",
+        "jsCode": "// OpenAI レスポンスから embedding を取り出し、Pinecone クエリ用に整形\n// topK=20 で多めに取得し、後段で各カテゴリ2件ずつに絞り込む\nconst embedding = $input.first().json.data[0].embedding;\n\nreturn [{\n  json: {\n    vector: embedding,\n    topK: 20,\n    includeMetadata: true\n  }\n}];"
+      },
+      "id": "code-prepare-pinecone",
+      "name": "Prepare Pinecone Query",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [750, 300]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://YOUR_PINECONE_HOST/query",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendBody": true,
+        "contentType": "json",
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify($json) }}",
+        "options": {
+          "timeout": 30000
+        }
+      },
+      "id": "http-pinecone-query",
+      "name": "Pinecone Query",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.4,
+      "position": [1000, 300],
+      "onError": "continueRegularOutput"
+    },
+    {
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "language": "javaScript",
+        "jsCode": "// Pinecone レスポンスからカテゴリ別に上位2件ずつ選択（合計6件）\nconst matches = $input.first().json.matches || [];\n\nconst categories = ['newsletter', 'podcast', 'paid_product'];\nconst perCategory = {};\ncategories.forEach(c => perCategory[c] = []);\n\nfor (const match of matches) {\n  const cat = match.metadata?.category || 'unknown';\n  if (perCategory[cat] && perCategory[cat].length < 2) {\n    perCategory[cat].push({\n      id: match.id,\n      score: match.score,\n      title: match.metadata?.title || '',\n      body: match.metadata?.body || '',\n      url: match.metadata?.url || '',\n      category: cat,\n      audio_url: match.metadata?.audio_url || ''\n    });\n  }\n}\n\nconst results = [\n  ...perCategory.newsletter,\n  ...perCategory.podcast,\n  ...perCategory.paid_product\n];\n\nreturn [{ json: { results } }];"
+      },
+      "id": "code-format-results",
+      "name": "Format Results",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [1250, 300]
+    },
+    {
+      "parameters": {
+        "respondWith": "firstIncomingItem",
+        "options": {
+          "responseHeaders": {
+            "entries": [
+              { "name": "Access-Control-Allow-Origin", "value": "*" },
+              { "name": "Access-Control-Allow-Headers", "value": "Content-Type" }
+            ]
+          }
+        }
+      },
+      "id": "respond-search",
+      "name": "Respond to Webhook",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.5,
+      "position": [1500, 300]
+    },
+    {
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "language": "javaScript",
+        "jsCode": "// 検索ログ用のデータを準備\nconst query = $input.first().json.body?.query || '';\n\n// 日本時間 (JST = UTC+9) でタイムスタンプ生成\nconst now = new Date();\nconst jst = new Date(now.getTime() + 9 * 60 * 60 * 1000);\nconst timestamp = jst.toISOString()\n  .replace('T', ' ')\n  .replace(/\\.\\d{3}Z$/, '')\n  .replace(/-/g, '/');\n\nreturn [{ json: { timestamp, query } }];"
+      },
+      "id": "code-prepare-log",
+      "name": "Prepare Log",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [500, 520]
+    },
+    {
+      "parameters": {
+        "operation": "append",
+        "documentId": {
+          "mode": "id",
+          "value": "YOUR_GOOGLE_SHEET_ID"
+        },
+        "sheetName": {
+          "mode": "name",
+          "value": "検索ログ"
+        },
+        "columns": {
+          "mappingMode": "autoMapInputData",
+          "matchingColumns": []
+        },
+        "options": {}
+      },
+      "id": "sheets-log",
+      "name": "Google Sheets Log",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.7,
+      "position": [750, 520],
+      "onError": "continueRegularOutput"
+    }
+  ],
+  "connections": {
+    "Webhook": {
+      "main": [
+        [
+          { "node": "OpenAI Embedding", "type": "main", "index": 0 },
+          { "node": "Prepare Log", "type": "main", "index": 0 }
+        ]
+      ]
+    },
+    "OpenAI Embedding": {
+      "main": [
+        [
+          { "node": "Prepare Pinecone Query", "type": "main", "index": 0 }
+        ]
+      ]
+    },
+    "Prepare Pinecone Query": {
+      "main": [
+        [
+          { "node": "Pinecone Query", "type": "main", "index": 0 }
+        ]
+      ]
+    },
+    "Pinecone Query": {
+      "main": [
+        [
+          { "node": "Format Results", "type": "main", "index": 0 }
+        ]
+      ]
+    },
+    "Format Results": {
+      "main": [
+        [
+          { "node": "Respond to Webhook", "type": "main", "index": 0 }
+        ]
+      ]
+    },
+    "Prepare Log": {
+      "main": [
+        [
+          { "node": "Google Sheets Log", "type": "main", "index": 0 }
+        ]
+      ]
+    }
+  },
+  "pinData": {},
+  "settings": {
+    "executionOrder": "v1"
+  }
+}

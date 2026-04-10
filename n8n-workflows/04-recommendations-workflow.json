@@ -1,0 +1,176 @@
+{
+  "name": "AI-Hana レコメンドAPI",
+  "nodes": [
+    {
+      "parameters": {
+        "content": "## セットアップ手順\n\n1. **クレデンシャル作成**\n   - 「Pinecone API Key」: HTTP Header Auth → Name: `Api-Key` / Value: `pcsk_xxxx`\n\n2. **2つの Pinecone HTTP Request ノード**: クレデンシャルを選択 + URL書き換え\n   - `YOUR_PINECONE_HOST` → 実際のホスト\n\n## 使い方\n- POST /ai-hana-recommend\n- Body: { id, excludeIds, needCategory }"
+      },
+      "id": "sticky-setup",
+      "name": "Sticky Note",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [40, 40]
+    },
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "ai-hana-recommend",
+        "responseMode": "responseNode",
+        "options": {}
+      },
+      "id": "webhook-recommend",
+      "name": "Webhook",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2.1,
+      "position": [250, 300],
+      "webhookId": "ai-hana-recommend",
+      "onError": "continueRegularOutput"
+    },
+    {
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "language": "javaScript",
+        "jsCode": "// リクエストからパラメータを抽出\nconst body = $input.first().json.body || {};\nconst id = String(body.id || '');\nconst excludeIds = body.excludeIds || [];\nconst needCategory = String(body.needCategory || '');\n\nif (!id) {\n  return [{ json: { error: 'id is required' } }];\n}\n\nreturn [{ json: { id, excludeIds, needCategory } }];"
+      },
+      "id": "code-extract-params",
+      "name": "Extract Params",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [500, 300]
+    },
+    {
+      "parameters": {
+        "method": "GET",
+        "url": "https://YOUR_PINECONE_HOST/vectors/fetch",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendQuery": true,
+        "queryParameters": {
+          "parameters": [
+            { "name": "ids", "value": "={{ $json.id }}" }
+          ]
+        },
+        "options": {
+          "timeout": 30000
+        }
+      },
+      "id": "http-pinecone-fetch",
+      "name": "Pinecone Fetch Vector",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.4,
+      "position": [750, 300],
+      "onError": "continueRegularOutput"
+    },
+    {
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "language": "javaScript",
+        "jsCode": "// 取得したベクトルでカテゴリフィルタ付き類似検索クエリを構築\nconst fetchResponse = $input.first().json;\nconst params = $('Extract Params').first().json;\nconst id = params.id;\nconst needCategory = params.needCategory;\nconst excludeIds = params.excludeIds || [];\n\nconst record = fetchResponse.vectors?.[id];\nif (!record || !record.values) {\n  return [{ json: { recommendations: [] } }];\n}\n\nconst query = {\n  vector: record.values,\n  topK: 10,\n  includeMetadata: true\n};\n\n// カテゴリフィルタがあれば適用\nif (needCategory) {\n  query.filter = { category: { '$eq': needCategory } };\n}\n\nreturn [{ json: query }];"
+      },
+      "id": "code-prepare-query",
+      "name": "Prepare Similarity Query",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [1000, 300]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://YOUR_PINECONE_HOST/query",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendBody": true,
+        "contentType": "json",
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify($json) }}",
+        "options": {
+          "timeout": 30000
+        }
+      },
+      "id": "http-pinecone-query",
+      "name": "Pinecone Query Similar",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.4,
+      "position": [1250, 300],
+      "onError": "continueRegularOutput"
+    },
+    {
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "language": "javaScript",
+        "jsCode": "// excludeIds を除外して上位1件を返す\nconst matches = $input.first().json.matches || [];\nconst params = $('Extract Params').first().json;\nconst excludeIds = new Set(params.excludeIds || []);\n\nconst recommendations = [];\nfor (const match of matches) {\n  if (excludeIds.has(match.id)) continue;\n  recommendations.push({\n    id: match.id,\n    score: match.score,\n    title: match.metadata?.title || '',\n    body: match.metadata?.body || '',\n    url: match.metadata?.url || '',\n    category: match.metadata?.category || '',\n    audio_url: match.metadata?.audio_url || ''\n  });\n  if (recommendations.length >= 1) break;\n}\n\nreturn [{ json: { recommendations } }];"
+      },
+      "id": "code-format-recommendations",
+      "name": "Format Recommendations",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [1500, 300]
+    },
+    {
+      "parameters": {
+        "respondWith": "firstIncomingItem",
+        "options": {
+          "responseHeaders": {
+            "entries": [
+              { "name": "Access-Control-Allow-Origin", "value": "*" },
+              { "name": "Access-Control-Allow-Headers", "value": "Content-Type" }
+            ]
+          }
+        }
+      },
+      "id": "respond-recommend",
+      "name": "Respond to Webhook",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.5,
+      "position": [1750, 300]
+    }
+  ],
+  "connections": {
+    "Webhook": {
+      "main": [
+        [
+          { "node": "Extract Params", "type": "main", "index": 0 }
+        ]
+      ]
+    },
+    "Extract Params": {
+      "main": [
+        [
+          { "node": "Pinecone Fetch Vector", "type": "main", "index": 0 }
+        ]
+      ]
+    },
+    "Pinecone Fetch Vector": {
+      "main": [
+        [
+          { "node": "Prepare Similarity Query", "type": "main", "index": 0 }
+        ]
+      ]
+    },
+    "Prepare Similarity Query": {
+      "main": [
+        [
+          { "node": "Pinecone Query Similar", "type": "main", "index": 0 }
+        ]
+      ]
+    },
+    "Pinecone Query Similar": {
+      "main": [
+        [
+          { "node": "Format Recommendations", "type": "main", "index": 0 }
+        ]
+      ]
+    },
+    "Format Recommendations": {
+      "main": [
+        [
+          { "node": "Respond to Webhook", "type": "main", "index": 0 }
+        ]
+      ]
+    }
+  },
+  "pinData": {},
+  "settings": {
+    "executionOrder": "v1"
+  }
+}
