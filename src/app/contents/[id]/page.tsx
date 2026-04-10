@@ -137,20 +137,6 @@ function ContentDetail() {
           </div>
         )}
 
-        {/* 元コンテンツリンク */}
-        {content.url && (
-          <div className="mt-4 p-4 bg-pink-50 rounded-xl">
-            <a
-              href={content.url}
-              target="_blank"
-              rel="noopener noreferrer"
-              className="text-pink-600 hover:text-pink-700 underline"
-            >
-              元のコンテンツを見る
-            </a>
-          </div>
-        )}
-
         {/* 関連コンテンツ（回遊UI） */}
         <RelatedContent currentId={id} query={query} />
       </article>

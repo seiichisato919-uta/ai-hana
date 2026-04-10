@@ -99,7 +99,7 @@ function HomeContent() {
 
       {/* フッター */}
       <footer className="mt-20 text-center text-sm text-gray-400">
-        <p>AI-Hana Demo Version</p>
+        <p>AI-Hana</p>
       </footer>
     </main>
   );
