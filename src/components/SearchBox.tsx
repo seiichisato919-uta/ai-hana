@@ -76,7 +76,7 @@ export default function SearchBox({
           placeholder={
             "あなたの星座と気持ちを教えてください…\n例：「乙女座 仕事のやる気が出ない」「おとめ座 最近出会いがなくて」"
           }
-          className="w-full h-32 p-5 text-lg rounded-2xl border-2 border-pink-200 focus:border-pink-400 focus:outline-none resize-none bg-white/80 backdrop-blur-sm shadow-lg placeholder:text-gray-400 text-gray-700"
+          className="w-full h-32 p-5 text-base sm:text-lg rounded-2xl border-2 border-pink-200 focus:border-pink-400 focus:outline-none resize-none bg-white/80 backdrop-blur-sm shadow-lg placeholder:text-sm sm:placeholder:text-base placeholder:text-gray-400 text-gray-700"
         />
         <button
           onClick={() => handleSearch()}
