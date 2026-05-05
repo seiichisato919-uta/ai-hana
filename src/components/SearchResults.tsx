@@ -88,19 +88,23 @@ export default function SearchResults({
                       {result.body}
                     </p>
 
-                    {/* ポッドキャスト: 音声リンクボタン */}
-                    {category === "podcast" && result.audio_url && (
-                      <span
-                        onClick={(e) => {
-                          e.preventDefault();
-                          e.stopPropagation();
-                          window.open(result.audio_url, "_blank");
-                        }}
-                        className="inline-flex items-center gap-1.5 mt-3 px-3 py-1.5 bg-purple-100 text-purple-700 rounded-lg text-sm font-medium hover:bg-purple-200 transition-colors cursor-pointer"
-                      >
-                        🎧 エピソードを聴く
-                      </span>
-                    )}
+                    {/* ポッドキャスト: 音声リンクボタン（audio_url > url の優先順） */}
+                    {category === "podcast" &&
+                      (result.audio_url || result.url) && (
+                        <span
+                          onClick={(e) => {
+                            e.preventDefault();
+                            e.stopPropagation();
+                            window.open(
+                              result.audio_url || result.url,
+                              "_blank"
+                            );
+                          }}
+                          className="inline-flex items-center gap-1.5 mt-3 px-3 py-1.5 bg-purple-100 text-purple-700 rounded-lg text-sm font-medium hover:bg-purple-200 transition-colors cursor-pointer"
+                        >
+                          🎧 エピソードを聴く
+                        </span>
+                      )}
                   </div>
                 </div>
               </Link>

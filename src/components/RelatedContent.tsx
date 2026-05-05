@@ -181,13 +181,13 @@ export default function RelatedContent({
                 {rec.body}
               </p>
 
-              {/* ポッドキャスト: 音声リンク */}
-              {cat === "podcast" && rec.audio_url && (
+              {/* ポッドキャスト: 音声リンク（audio_url > url の優先順） */}
+              {cat === "podcast" && (rec.audio_url || rec.url) && (
                 <span
                   onClick={(e) => {
                     e.preventDefault();
                     e.stopPropagation();
-                    window.open(rec.audio_url, "_blank");
+                    window.open(rec.audio_url || rec.url, "_blank");
                   }}
                   className="inline-flex items-center gap-1 mt-2 px-2 py-1 bg-purple-100 text-purple-700 rounded text-xs font-medium hover:bg-purple-200 transition-colors cursor-pointer"
                 >

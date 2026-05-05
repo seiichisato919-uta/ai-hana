@@ -123,19 +123,20 @@ function ContentDetail() {
           ))}
         </div>
 
-        {/* ポッドキャスト: 音声リンク */}
-        {category === "podcast" && content.audio_url && (
-          <div className="mt-6 p-4 bg-purple-50 rounded-xl">
-            <a
-              href={content.audio_url}
-              target="_blank"
-              rel="noopener noreferrer"
-              className="inline-flex items-center gap-2 text-purple-700 hover:text-purple-800 font-medium"
-            >
-              🎧 エピソードを聴く
-            </a>
-          </div>
-        )}
+        {/* ポッドキャスト: 音声リンク（audio_url > url の優先順でフォールバック） */}
+        {category === "podcast" &&
+          (content.audio_url || content.url) && (
+            <div className="mt-6 p-4 bg-purple-50 rounded-xl">
+              <a
+                href={content.audio_url || content.url}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="inline-flex items-center gap-2 text-purple-700 hover:text-purple-800 font-medium"
+              >
+                🎧 エピソードを聴く
+              </a>
+            </div>
+          )}
 
         {/* 関連コンテンツ（回遊UI） */}
         <RelatedContent currentId={id} query={query} />
