@@ -27,59 +27,79 @@ export default function RelatedContent({
       setLoading(true);
       try {
         const stored = sessionStorage.getItem("searchResults");
-        if (!stored) {
-          setLoading(false);
-          return;
-        }
+        const allResults: SearchResult[] = stored ? JSON.parse(stored) : [];
 
-        const allResults: SearchResult[] = JSON.parse(stored);
         // 現在のコンテンツを除外
         const remaining = allResults.filter((r) => r.id !== currentId);
 
-        // 不足カテゴリを判定
-        const presentCategories = new Set(remaining.map((r) => r.category));
-        const missingCategory = CATEGORIES.find(
-          (c) => !presentCategories.has(c)
-        );
-
-        let finalRecs = remaining.slice(0, 5);
-
-        // 不足カテゴリがあれば n8n API で補充（zodiac+element を維持）
-        if (missingCategory && finalRecs.length < 6) {
-          try {
-            // query から星座とエレメントを検出（元の検索条件を維持）
-            const detected = detectZodiac(query);
-            const zodiacName = detected ? detected.zodiac : "";
-            const elementKanji = detected
-              ? elementToKanji(detected.element)
-              : "";
-
-            const webhookUrl =
-              process.env.NEXT_PUBLIC_N8N_WEBHOOK_URL ||
-              "http://localhost:5678/webhook";
-            const excludeIds = [
-              currentId,
-              ...finalRecs.map((r) => r.id),
-            ];
-            const res = await fetch(`${webhookUrl}/ai-hana-recommend`, {
-              method: "POST",
-              headers: { "Content-Type": "application/json" },
-              body: JSON.stringify({
-                id: currentId,
-                excludeIds,
-                needCategory: missingCategory,
-                zodiac: zodiacName,
-                element: elementKanji,
-              }),
-            });
-            const data = await res.json();
-            if (data.recommendations && data.recommendations.length > 0) {
-              finalRecs = [...finalRecs, ...data.recommendations].slice(0, 6);
-            }
-          } catch {
-            // API エラー時は残り5件のみ表示
+        // カテゴリ別に最大2件ずつ集める（既存分）
+        const byCategory: Record<Category, SearchResult[]> = {
+          newsletter: [],
+          podcast: [],
+          paid_product: [],
+        };
+        for (const r of remaining) {
+          const cat = r.category as Category;
+          if (byCategory[cat] && byCategory[cat].length < 2) {
+            byCategory[cat].push(r);
           }
         }
+
+        // 不足分（各カテゴリで2件未満）を recommend API で補充
+        const detected = detectZodiac(query);
+        const zodiacName = detected ? detected.zodiac : "";
+        const elementKanji = detected
+          ? elementToKanji(detected.element)
+          : "";
+
+        const webhookUrl =
+          process.env.NEXT_PUBLIC_N8N_WEBHOOK_URL ||
+          "http://localhost:5678/webhook";
+
+        const excludeIds = new Set<string>([
+          currentId,
+          ...remaining.map((r) => r.id),
+        ]);
+
+        for (const cat of CATEGORIES) {
+          // 各カテゴリで2件揃うまで API を呼び続ける
+          // ただし、関連コンテンツが尽きたら break（無関係なものは出さない）
+          let safetyCount = 0;
+          while (byCategory[cat].length < 2 && safetyCount < 3) {
+            safetyCount++;
+            try {
+              const res = await fetch(`${webhookUrl}/ai-hana-recommend`, {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({
+                  id: currentId,
+                  excludeIds: Array.from(excludeIds),
+                  needCategory: cat,
+                  zodiac: zodiacName,
+                  element: elementKanji,
+                }),
+              });
+              const data = await res.json();
+              const recs: SearchResult[] = data.recommendations || [];
+              if (recs.length === 0) break; // 該当コンテンツが尽きた
+
+              const newRec = recs[0];
+              if (excludeIds.has(newRec.id)) break; // 重複（無限ループ防止）
+
+              byCategory[cat].push(newRec);
+              excludeIds.add(newRec.id);
+            } catch {
+              break;
+            }
+          }
+        }
+
+        // 最終結果（カテゴリ順に並べる）
+        const finalRecs = [
+          ...byCategory.newsletter,
+          ...byCategory.podcast,
+          ...byCategory.paid_product,
+        ];
 
         setRecommendations(finalRecs);
       } catch {
