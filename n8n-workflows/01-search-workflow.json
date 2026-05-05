@@ -3,7 +3,7 @@
   "nodes": [
     {
       "parameters": {
-        "content": "## セットアップ手順\n\n1. **クレデンシャル作成（2つ）**\n   - 「OpenAI API Key」: HTTP Header Auth → Name: `Authorization` / Value: `Bearer sk-proj-xxxx`\n   - 「Pinecone API Key」: HTTP Header Auth → Name: `Api-Key` / Value: `pcsk_xxxx`\n\n2. **各 HTTP Request ノードでクレデンシャルを選択**\n\n3. **Pinecone Query ノードの URL を書き換え**\n   - `YOUR_PINECONE_HOST` → 実際のホスト (例: `https://ai-hana-xxx.svc.xxx.pinecone.io`)\n\n4. **Google Sheets Log ノードのクレデンシャルとシートIDを設定**"
+        "content": "## セットアップ手順\n\n1. **クレデンシャル作成（2つ）**\n   - 「OpenAI API Key」: HTTP Header Auth → Name: `Authorization` / Value: `Bearer sk-proj-xxxx`\n   - 「Pinecone API Key」: HTTP Header Auth → Name: `Api-Key` / Value: `pcsk_xxxx`\n\n2. **各 HTTP Request ノードでクレデンシャルを選択**\n\n3. **Pinecone Query ノードの URL を書き換え**\n   - `YOUR_PINECONE_HOST` → 実際のホスト (例: `https://ai-hana-xxx.svc.xxx.pinecone.io`)\n\n4. **Google Sheets Log ノードのクレデンシャルとシートIDを設定**\n\n## v2 変更点\n\n- リクエストに `element`（火/地/風/水）を含める\n- Pinecone Query で element によるメタデータフィルタを実施\n- フィルタ後のマッチからカテゴリ別2件ずつ抽出（合計6件）"
       },
       "id": "sticky-setup",
       "name": "Sticky Note",
@@ -56,7 +56,7 @@
       "parameters": {
         "mode": "runOnceForAllItems",
         "language": "javaScript",
-        "jsCode": "// OpenAI レスポンスから embedding を取り出し、Pinecone クエリ用に整形\n// topK=20 で多めに取得し、後段で各カテゴリ2件ずつに絞り込む\nconst embedding = $input.first().json.data[0].embedding;\n\nreturn [{\n  json: {\n    vector: embedding,\n    topK: 20,\n    includeMetadata: true\n  }\n}];"
+        "jsCode": "// OpenAI レスポンスから embedding を取り出し、Pinecone クエリ用に整形\n// 星座優先フィルタ（クライアントの誤入力に寛容）:\n//  ① 星座がユーザーの星座と一致 → 通す（element は不問）\n//  ② 星座が空 AND element がユーザーのエレメント or 空 → 通す\n//  それ以外（違う星座を狙ったコンテンツ等）→ 除外\nconst embedding = $input.first().json.data[0].embedding;\nconst body = $('Webhook').first().json.body || {};\nconst userZodiac = body.zodiac || '';\nconst userElement = body.element || '';\n\nconst query = {\n  vector: embedding,\n  topK: 100,\n  includeMetadata: true\n};\n\nif (userZodiac && userElement) {\n  query.filter = {\n    '$or': [\n      { zodiac: { '$in': [userZodiac] } },\n      {\n        '$and': [\n          { zodiac: { '$in': [''] } },\n          { element: { '$in': [userElement, ''] } }\n        ]\n      }\n    ]\n  };\n} else if (userZodiac) {\n  query.filter = { zodiac: { '$in': [userZodiac, ''] } };\n} else if (userElement) {\n  query.filter = { element: { '$in': [userElement, ''] } };\n}\n\nreturn [{ json: query }];"
       },
       "id": "code-prepare-pinecone",
       "name": "Prepare Pinecone Query",
@@ -89,7 +89,7 @@
       "parameters": {
         "mode": "runOnceForAllItems",
         "language": "javaScript",
-        "jsCode": "// Pinecone レスポンスからカテゴリ別に上位2件ずつ選択（合計6件）\nconst matches = $input.first().json.matches || [];\n\nconst categories = ['newsletter', 'podcast', 'paid_product'];\nconst perCategory = {};\ncategories.forEach(c => perCategory[c] = []);\n\nfor (const match of matches) {\n  const cat = match.metadata?.category || 'unknown';\n  if (perCategory[cat] && perCategory[cat].length < 2) {\n    perCategory[cat].push({\n      id: match.id,\n      score: match.score,\n      title: match.metadata?.title || '',\n      body: match.metadata?.body || '',\n      url: match.metadata?.url || '',\n      category: cat,\n      audio_url: match.metadata?.audio_url || ''\n    });\n  }\n}\n\nconst results = [\n  ...perCategory.newsletter,\n  ...perCategory.podcast,\n  ...perCategory.paid_product\n];\n\nreturn [{ json: { results } }];"
+        "jsCode": "// Pinecone レスポンスからカテゴリ別に上位2件ずつ選択（合計6件）\n// 3-tier 優先度（マトリックス通り）:\n//   Tier 1 (A∩D): zodiac がユーザーの星座と一致\n//   Tier 2 (B∩D): zodiac は空、element がユーザーのエレメントと一致\n//   Tier 3 (C∩D): zodiac も element も空（汎用コンテンツ）\nconst matches = $input.first().json.matches || [];\nconst body = $('Webhook').first().json.body || {};\nconst userZodiac = body.zodiac || '';\nconst userElement = body.element || '';\n\nconst categories = ['newsletter', 'podcast', 'paid_product'];\nconst perCategory = {};\ncategories.forEach(c => perCategory[c] = []);\n\nconst toArr = (v) => {\n  if (Array.isArray(v)) return v;\n  if (v === undefined || v === null) return [''];\n  return [String(v)];\n};\n\n// 配列が空 / [''] のみなら汎用扱い\nconst isGeneric = (arr) =>\n  arr.length === 0 || (arr.length === 1 && arr[0] === '');\n\nconst toResult = (match) => {\n  const elArr = toArr(match.metadata?.element).filter(s => s !== '');\n  const zoArr = toArr(match.metadata?.zodiac).filter(s => s !== '');\n  return {\n    id: match.id,\n    score: match.score,\n    title: match.metadata?.title || '',\n    body: match.metadata?.body || '',\n    url: match.metadata?.url || '',\n    category: match.metadata?.category || 'unknown',\n    zodiac: zoArr.join(','),\n    element: elArr.join(','),\n    audio_url: match.metadata?.audio_url || ''\n  };\n};\n\nconst pushIfRoom = (match) => {\n  const cat = match.metadata?.category;\n  if (!perCategory[cat]) return false;\n  if (perCategory[cat].length >= 2) return false;\n  if (perCategory[cat].some(x => x.id === match.id)) return false;\n  perCategory[cat].push(toResult(match));\n  return true;\n};\n\n// Tier 1: zodiac がユーザーの星座と一致\nfor (const match of matches) {\n  const zoArr = toArr(match.metadata?.zodiac);\n  if (!userZodiac || !zoArr.includes(userZodiac)) continue;\n  pushIfRoom(match);\n}\n\n// Tier 2: zodiac 空 + element がユーザーのエレメントと一致\nfor (const match of matches) {\n  const zoArr = toArr(match.metadata?.zodiac);\n  const elArr = toArr(match.metadata?.element);\n  if (!isGeneric(zoArr)) continue;\n  if (!userElement || !elArr.includes(userElement)) continue;\n  pushIfRoom(match);\n}\n\n// Tier 3: zodiac も element も空（汎用）\nfor (const match of matches) {\n  const zoArr = toArr(match.metadata?.zodiac);\n  const elArr = toArr(match.metadata?.element);\n  if (!isGeneric(zoArr)) continue;\n  if (!isGeneric(elArr)) continue;\n  pushIfRoom(match);\n}\n\nconst results = [\n  ...perCategory.newsletter,\n  ...perCategory.podcast,\n  ...perCategory.paid_product\n];\n\nreturn [{ json: { results } }];"
       },
       "id": "code-format-results",
       "name": "Format Results",
@@ -119,7 +119,7 @@
       "parameters": {
         "mode": "runOnceForAllItems",
         "language": "javaScript",
-        "jsCode": "// 検索ログ用のデータを準備\nconst query = $input.first().json.body?.query || '';\n\n// 日本時間 (JST = UTC+9) でタイムスタンプ生成\nconst now = new Date();\nconst jst = new Date(now.getTime() + 9 * 60 * 60 * 1000);\nconst timestamp = jst.toISOString()\n  .replace('T', ' ')\n  .replace(/\\.\\d{3}Z$/, '')\n  .replace(/-/g, '/');\n\nreturn [{ json: { timestamp, query } }];"
+        "jsCode": "// 検索ログ用のデータを準備\nconst body = $input.first().json.body || {};\nconst query = body.query || '';\nconst zodiac = body.zodiac || '';\nconst element = body.element || '';\n\n// 日本時間 (JST = UTC+9) でタイムスタンプ生成\nconst now = new Date();\nconst jst = new Date(now.getTime() + 9 * 60 * 60 * 1000);\nconst timestamp = jst.toISOString()\n  .replace('T', ' ')\n  .replace(/\\.\\d{3}Z$/, '')\n  .replace(/-/g, '/');\n\nreturn [{ json: { timestamp, query, zodiac, element } }];"
       },
       "id": "code-prepare-log",
       "name": "Prepare Log",

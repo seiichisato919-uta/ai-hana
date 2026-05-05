@@ -8,6 +8,7 @@ import {
   CATEGORY_ICONS,
   CATEGORIES,
 } from "@/lib/types";
+import { detectZodiac, elementToKanji } from "@/lib/zodiac";
 
 interface RelatedContentProps {
   currentId: string;
@@ -43,9 +44,16 @@ export default function RelatedContent({
 
         let finalRecs = remaining.slice(0, 5);
 
-        // 不足カテゴリがあれば n8n API で補充
+        // 不足カテゴリがあれば n8n API で補充（zodiac+element を維持）
         if (missingCategory && finalRecs.length < 6) {
           try {
+            // query から星座とエレメントを検出（元の検索条件を維持）
+            const detected = detectZodiac(query);
+            const zodiacName = detected ? detected.zodiac : "";
+            const elementKanji = detected
+              ? elementToKanji(detected.element)
+              : "";
+
             const webhookUrl =
               process.env.NEXT_PUBLIC_N8N_WEBHOOK_URL ||
               "http://localhost:5678/webhook";
@@ -60,6 +68,8 @@ export default function RelatedContent({
                 id: currentId,
                 excludeIds,
                 needCategory: missingCategory,
+                zodiac: zodiacName,
+                element: elementKanji,
               }),
             });
             const data = await res.json();
@@ -80,7 +90,7 @@ export default function RelatedContent({
     };
 
     loadRecommendations();
-  }, [currentId]);
+  }, [currentId, query]);
 
   // カード遷移時に現在のレコメンドを sessionStorage に保存
   const handleCardClick = () => {

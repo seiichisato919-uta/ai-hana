@@ -65,7 +65,7 @@
       "parameters": {
         "mode": "runOnceForAllItems",
         "language": "javaScript",
-        "jsCode": "// Pinecone レスポンスからコンテンツデータを抽出（category, audio_url 含む）\nconst response = $input.first().json;\nconst id = $('Extract ID').first().json.id;\nconst record = response.vectors?.[id];\n\nif (!record) {\n  return [{ json: { error: 'Content not found' } }];\n}\n\nreturn [{\n  json: {\n    id: id,\n    title: record.metadata?.title || '',\n    body: record.metadata?.body || '',\n    url: record.metadata?.url || '',\n    category: record.metadata?.category || '',\n    audio_url: record.metadata?.audio_url || ''\n  }\n}];"
+        "jsCode": "// Pinecone レスポンスからコンテンツデータを抽出（category, zodiac, element, audio_url）\n// zodiac/element は配列で格納されているため、フロント表示用にカンマ区切り文字列へ変換\nconst response = $input.first().json;\nconst id = $('Extract ID').first().json.id;\nconst record = response.vectors?.[id];\n\nif (!record) {\n  return [{ json: { error: 'Content not found' } }];\n}\n\nconst toStr = (v) => {\n  if (Array.isArray(v)) return v.filter(s => s !== '').join(',');\n  if (v === undefined || v === null) return '';\n  return String(v);\n};\n\nreturn [{\n  json: {\n    id: id,\n    title: record.metadata?.title || '',\n    body: record.metadata?.body || '',\n    url: record.metadata?.url || '',\n    category: record.metadata?.category || '',\n    zodiac: toStr(record.metadata?.zodiac),\n    element: toStr(record.metadata?.element),\n    audio_url: record.metadata?.audio_url || ''\n  }\n}];"
       },
       "id": "code-format-response",
       "name": "Format Response",

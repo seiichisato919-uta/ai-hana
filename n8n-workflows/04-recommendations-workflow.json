@@ -30,7 +30,7 @@
       "parameters": {
         "mode": "runOnceForAllItems",
         "language": "javaScript",
-        "jsCode": "// リクエストからパラメータを抽出\nconst body = $input.first().json.body || {};\nconst id = String(body.id || '');\nconst excludeIds = body.excludeIds || [];\nconst needCategory = String(body.needCategory || '');\n\nif (!id) {\n  return [{ json: { error: 'id is required' } }];\n}\n\nreturn [{ json: { id, excludeIds, needCategory } }];"
+        "jsCode": "// リクエストからパラメータを抽出\nconst body = $input.first().json.body || {};\nconst id = String(body.id || '');\nconst excludeIds = body.excludeIds || [];\nconst needCategory = String(body.needCategory || '');\nconst zodiac = String(body.zodiac || '');\nconst element = String(body.element || '');\n\nif (!id) {\n  return [{ json: { error: 'id is required' } }];\n}\n\nreturn [{ json: { id, excludeIds, needCategory, zodiac, element } }];"
       },
       "id": "code-extract-params",
       "name": "Extract Params",
@@ -65,7 +65,7 @@
       "parameters": {
         "mode": "runOnceForAllItems",
         "language": "javaScript",
-        "jsCode": "// 取得したベクトルでカテゴリフィルタ付き類似検索クエリを構築\nconst fetchResponse = $input.first().json;\nconst params = $('Extract Params').first().json;\nconst id = params.id;\nconst needCategory = params.needCategory;\nconst excludeIds = params.excludeIds || [];\n\nconst record = fetchResponse.vectors?.[id];\nif (!record || !record.values) {\n  return [{ json: { recommendations: [] } }];\n}\n\nconst query = {\n  vector: record.values,\n  topK: 10,\n  includeMetadata: true\n};\n\n// カテゴリフィルタがあれば適用\nif (needCategory) {\n  query.filter = { category: { '$eq': needCategory } };\n}\n\nreturn [{ json: query }];"
+        "jsCode": "// 取得したベクトルでカテゴリ＆星座優先フィルタ付き類似検索クエリを構築\n// 星座優先ロジック（クライアントの誤入力に寛容）:\n//  ① 星座がユーザーと一致 → 通す（element は不問）\n//  ② 星座が空 AND element がユーザー or 空 → 通す\nconst fetchResponse = $input.first().json;\nconst params = $('Extract Params').first().json;\nconst id = params.id;\nconst needCategory = params.needCategory;\nconst zodiac = params.zodiac;\nconst element = params.element;\n\nconst record = fetchResponse.vectors?.[id];\nif (!record || !record.values) {\n  return [{ json: { recommendations: [] } }];\n}\n\nconst query = {\n  vector: record.values,\n  topK: 30,\n  includeMetadata: true\n};\n\nconst filters = [];\nif (needCategory) {\n  filters.push({ category: { '$eq': needCategory } });\n}\n\nif (zodiac && element) {\n  filters.push({\n    '$or': [\n      { zodiac: { '$in': [zodiac] } },\n      {\n        '$and': [\n          { zodiac: { '$in': [''] } },\n          { element: { '$in': [element, ''] } }\n        ]\n      }\n    ]\n  });\n} else if (zodiac) {\n  filters.push({ zodiac: { '$in': [zodiac, ''] } });\n} else if (element) {\n  filters.push({ element: { '$in': [element, ''] } });\n}\n\nif (filters.length === 1) {\n  query.filter = filters[0];\n} else if (filters.length > 1) {\n  query.filter = { '$and': filters };\n}\n\nreturn [{ json: query }];"
       },
       "id": "code-prepare-query",
       "name": "Prepare Similarity Query",
@@ -98,7 +98,7 @@
       "parameters": {
         "mode": "runOnceForAllItems",
         "language": "javaScript",
-        "jsCode": "// excludeIds を除外して上位1件を返す\nconst matches = $input.first().json.matches || [];\nconst params = $('Extract Params').first().json;\nconst excludeIds = new Set(params.excludeIds || []);\n\nconst recommendations = [];\nfor (const match of matches) {\n  if (excludeIds.has(match.id)) continue;\n  recommendations.push({\n    id: match.id,\n    score: match.score,\n    title: match.metadata?.title || '',\n    body: match.metadata?.body || '',\n    url: match.metadata?.url || '',\n    category: match.metadata?.category || '',\n    audio_url: match.metadata?.audio_url || ''\n  });\n  if (recommendations.length >= 1) break;\n}\n\nreturn [{ json: { recommendations } }];"
+        "jsCode": "// excludeIds を除外して上位1件を返す（element/zodiac は配列を文字列化）\nconst matches = $input.first().json.matches || [];\nconst params = $('Extract Params').first().json;\nconst excludeIds = new Set(params.excludeIds || []);\n\nconst toArrStr = (v) => {\n  if (Array.isArray(v)) return v.filter(s => s !== '').join(',');\n  if (v === undefined || v === null) return '';\n  return String(v);\n};\n\nconst recommendations = [];\nfor (const match of matches) {\n  if (excludeIds.has(match.id)) continue;\n  recommendations.push({\n    id: match.id,\n    score: match.score,\n    title: match.metadata?.title || '',\n    body: match.metadata?.body || '',\n    url: match.metadata?.url || '',\n    category: match.metadata?.category || '',\n    zodiac: toArrStr(match.metadata?.zodiac),\n    element: toArrStr(match.metadata?.element),\n    audio_url: match.metadata?.audio_url || ''\n  });\n  if (recommendations.length >= 1) break;\n}\n\nreturn [{ json: { recommendations } }];"
       },
       "id": "code-format-recommendations",
       "name": "Format Recommendations",

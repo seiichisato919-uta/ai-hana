@@ -2,16 +2,19 @@
 
 import { useState } from "react";
 import type { SearchResult } from "@/lib/types";
+import { detectZodiac, elementToKanji } from "@/lib/zodiac";
 
 interface SearchBoxProps {
   onResults: (results: SearchResult[], query: string) => void;
   onLoading: (loading: boolean) => void;
+  onError?: (errorMessage: string | null) => void;
   initialQuery?: string;
 }
 
 export default function SearchBox({
   onResults,
   onLoading,
+  onError,
   initialQuery = "",
 }: SearchBoxProps) {
   const [query, setQuery] = useState(initialQuery);
@@ -19,6 +22,17 @@ export default function SearchBox({
   const handleSearch = async (searchQuery?: string) => {
     const trimmed = (searchQuery ?? query).trim();
     if (!trimmed) return;
+
+    // 星座を検出（星座名 + エレメント）
+    const detected = detectZodiac(trimmed);
+    if (!detected) {
+      onError?.(
+        "星座を認識できませんでした。例：『乙女座』『おとめ座』『オトメ座』などを含めて入力してください。"
+      );
+      onResults([], trimmed);
+      return;
+    }
+    onError?.(null);
 
     onLoading(true);
     try {
@@ -28,7 +42,11 @@ export default function SearchBox({
       const res = await fetch(`${webhookUrl}/ai-hana-search`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ query: trimmed }),
+        body: JSON.stringify({
+          query: trimmed,
+          zodiac: detected.zodiac, // 星座名（漢字）
+          element: elementToKanji(detected.element), // エレメント（火/地/風/水）
+        }),
       });
       const data = await res.json();
       onResults(data.results || [], trimmed);
@@ -56,7 +74,7 @@ export default function SearchBox({
             }
           }}
           placeholder={
-            "あなたのお悩みを教えてください…\n例：「最近出会いがなくて…」「仕事のやる気が出ない」"
+            "あなたの星座と気持ちを教えてください…\n例：「乙女座 仕事のやる気が出ない」「おとめ座 最近出会いがなくて」"
           }
           className="w-full h-32 p-5 text-lg rounded-2xl border-2 border-pink-200 focus:border-pink-400 focus:outline-none resize-none bg-white/80 backdrop-blur-sm shadow-lg placeholder:text-gray-400 text-gray-700"
         />

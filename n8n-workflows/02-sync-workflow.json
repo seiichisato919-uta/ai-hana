@@ -3,7 +3,7 @@
   "nodes": [
     {
       "parameters": {
-        "content": "## セットアップ手順\n\n1. **クレデンシャル作成（2つ）**\n   - 「OpenAI API Key」: HTTP Header Auth → Name: `Authorization` / Value: `Bearer sk-proj-xxxx`\n   - 「Pinecone API Key」: HTTP Header Auth → Name: `Api-Key` / Value: `pcsk_xxxx`\n\n2. **3つの Google Sheets Read ノード**: クレデンシャル選択 + シートID設定\n\n3. **OpenAI Embedding ノード**: 「OpenAI API Key」クレデンシャルを選択\n\n4. **Pinecone Upsert ノード**: 「Pinecone API Key」クレデンシャルを選択 + URL書き換え\n\n5. **GAS連携**: GAS側のリクエスト先を `https://your-n8n-host/webhook/ai-hana-sync` に変更"
+        "content": "## セットアップ手順\n\n1. **クレデンシャル作成（2つ）**\n   - 「OpenAI API Key」: HTTP Header Auth → Name: `Authorization` / Value: `Bearer sk-proj-xxxx`\n   - 「Pinecone API Key」: HTTP Header Auth → Name: `Api-Key` / Value: `pcsk_xxxx`\n\n2. **3つの Google Sheets Read ノード**: クレデンシャル選択 + シートID設定\n\n3. **OpenAI Embedding ノード**: 「OpenAI API Key」クレデンシャルを選択\n\n4. **Pinecone Upsert ノード**: 「Pinecone API Key」クレデンシャルを選択 + URL書き換え\n\n5. **GAS連携**: GAS側のリクエスト先を `https://your-n8n-host/webhook/ai-hana-sync` に変更\n\n## ⚠️ シート列構成（v3: 星座列追加）\n\n各シートに「エレメント」と「星座」列を追加してください：\n- メルマガ: No., タイトル, 本文, URL, **エレメント**, **星座**\n- ポッドキャスト: No., タイトル, 本文, URL, audio_url, **エレメント**, **星座**\n- 有料商品: No., タイトル, 本文, URL, **エレメント**, **星座**\n\n値の例:\n- エレメント: \"火\" / \"地,水\" / \"\" (空)\n- 星座: \"乙女座\" / \"牡牛座,獅子座\" / \"\" (空)\n\n優先度ロジック (検索ワークフロー側で適用):\n- 第1優先: 星座がユーザーの星座と一致\n- 第2優先: 星座が空 + エレメントがユーザーのエレメントと一致\n- 第3優先: 星座とエレメント両方が空 (汎用コンテンツ)"
       },
       "id": "sticky-setup",
       "name": "Sticky Note",
@@ -37,7 +37,7 @@
           "mode": "name",
           "value": "メルマガ"
         },
-        "range": "A:D",
+        "range": "A:F",
         "options": {}
       },
       "id": "sheets-newsletter",
@@ -58,7 +58,7 @@
           "mode": "name",
           "value": "ポッドキャスト"
         },
-        "range": "A:E",
+        "range": "A:G",
         "options": {}
       },
       "id": "sheets-podcast",
@@ -79,7 +79,7 @@
           "mode": "name",
           "value": "有料商品"
         },
-        "range": "A:D",
+        "range": "A:F",
         "options": {}
       },
       "id": "sheets-paid",
@@ -93,7 +93,7 @@
       "parameters": {
         "mode": "runOnceForAllItems",
         "language": "javaScript",
-        "jsCode": "const items = $input.all();\nreturn items.map(item => ({\n  json: {\n    ...item.json,\n    id: `newsletter_${item.json.id}`,\n    category: 'newsletter',\n    audio_url: ''\n  }\n}));"
+        "jsCode": "// 「エレメント」列と「星座」列のカンマ区切り文字列を配列にパース\nconst validElements = ['火', '地', '風', '水'];\nconst validZodiacs = ['牡羊座','牡牛座','双子座','蟹座','獅子座','乙女座','天秤座','蠍座','射手座','山羊座','水瓶座','魚座'];\n\nconst items = $input.all();\nreturn items.map(item => {\n  const elRaw = String(item.json['エレメント'] || '').trim();\n  let elementArr = elRaw\n    ? elRaw.split(/[,，、]/).map(s => s.trim()).filter(s => validElements.includes(s))\n    : [];\n  if (elementArr.length === 0) elementArr = [''];\n\n  const zoRaw = String(item.json['星座'] || '').trim();\n  let zodiacArr = zoRaw\n    ? zoRaw.split(/[,，、]/).map(s => s.trim()).filter(s => validZodiacs.includes(s))\n    : [];\n  if (zodiacArr.length === 0) zodiacArr = [''];\n\n  return {\n    json: {\n      ...item.json,\n      id: `newsletter_${item.json.id}`,\n      category: 'newsletter',\n      element: elementArr,\n      zodiac: zodiacArr,\n      audio_url: ''\n    }\n  };\n});"
       },
       "id": "code-tag-newsletter",
       "name": "Tag Newsletter",
@@ -105,7 +105,7 @@
       "parameters": {
         "mode": "runOnceForAllItems",
         "language": "javaScript",
-        "jsCode": "const items = $input.all();\nreturn items.map(item => ({\n  json: {\n    ...item.json,\n    id: `podcast_${item.json.id}`,\n    category: 'podcast',\n    audio_url: String(item.json.audio_url || '')\n  }\n}));"
+        "jsCode": "// 「エレメント」列と「星座」列のカンマ区切り文字列を配列にパース\nconst validElements = ['火', '地', '風', '水'];\nconst validZodiacs = ['牡羊座','牡牛座','双子座','蟹座','獅子座','乙女座','天秤座','蠍座','射手座','山羊座','水瓶座','魚座'];\n\nconst items = $input.all();\nreturn items.map(item => {\n  const elRaw = String(item.json['エレメント'] || '').trim();\n  let elementArr = elRaw\n    ? elRaw.split(/[,，、]/).map(s => s.trim()).filter(s => validElements.includes(s))\n    : [];\n  if (elementArr.length === 0) elementArr = [''];\n\n  const zoRaw = String(item.json['星座'] || '').trim();\n  let zodiacArr = zoRaw\n    ? zoRaw.split(/[,，、]/).map(s => s.trim()).filter(s => validZodiacs.includes(s))\n    : [];\n  if (zodiacArr.length === 0) zodiacArr = [''];\n\n  return {\n    json: {\n      ...item.json,\n      id: `podcast_${item.json.id}`,\n      category: 'podcast',\n      element: elementArr,\n      zodiac: zodiacArr,\n      audio_url: String(item.json.audio_url || '')\n    }\n  };\n});"
       },
       "id": "code-tag-podcast",
       "name": "Tag Podcast",
@@ -117,7 +117,7 @@
       "parameters": {
         "mode": "runOnceForAllItems",
         "language": "javaScript",
-        "jsCode": "const items = $input.all();\nreturn items.map(item => ({\n  json: {\n    ...item.json,\n    id: `paid_product_${item.json.id}`,\n    category: 'paid_product',\n    audio_url: ''\n  }\n}));"
+        "jsCode": "// 「エレメント」列と「星座」列のカンマ区切り文字列を配列にパース\nconst validElements = ['火', '地', '風', '水'];\nconst validZodiacs = ['牡羊座','牡牛座','双子座','蟹座','獅子座','乙女座','天秤座','蠍座','射手座','山羊座','水瓶座','魚座'];\n\nconst items = $input.all();\nreturn items.map(item => {\n  const elRaw = String(item.json['エレメント'] || '').trim();\n  let elementArr = elRaw\n    ? elRaw.split(/[,，、]/).map(s => s.trim()).filter(s => validElements.includes(s))\n    : [];\n  if (elementArr.length === 0) elementArr = [''];\n\n  const zoRaw = String(item.json['星座'] || '').trim();\n  let zodiacArr = zoRaw\n    ? zoRaw.split(/[,，、]/).map(s => s.trim()).filter(s => validZodiacs.includes(s))\n    : [];\n  if (zodiacArr.length === 0) zodiacArr = [''];\n\n  return {\n    json: {\n      ...item.json,\n      id: `paid_product_${item.json.id}`,\n      category: 'paid_product',\n      element: elementArr,\n      zodiac: zodiacArr,\n      audio_url: ''\n    }\n  };\n});"
       },
       "id": "code-tag-paid",
       "name": "Tag PaidProduct",
@@ -185,7 +185,7 @@
       "parameters": {
         "mode": "runOnceForAllItems",
         "language": "javaScript",
-        "jsCode": "// OpenAI の embedding レスポンスと Merge All Data の結合データを使って\n// Pinecone upsert 用のバッチを作成\nconst embeddingItems = $input.all();\nconst mergedItems = $('Merge All Data').all();\n\nconst records = [];\nconst count = Math.min(embeddingItems.length, mergedItems.length);\n\nfor (let i = 0; i < count; i++) {\n  const embResponse = embeddingItems[i].json;\n  const row = mergedItems[i].json;\n\n  const id = String(row.id || '');\n  const title = String(row.title || '');\n  const body = String(row.body || '');\n  const url = String(row.url || '');\n  const category = String(row.category || '');\n  const audio_url = String(row.audio_url || '');\n\n  if (!id || !body || !embResponse.data?.[0]?.embedding) continue;\n\n  records.push({\n    id,\n    values: embResponse.data[0].embedding,\n    metadata: { title, body, url, category, audio_url }\n  });\n}\n\nif (records.length === 0) {\n  return [{ json: { success: true, message: 'No data to sync', count: 0 } }];\n}\n\n// 100件ずつバッチに分割\nconst batchSize = 100;\nconst batches = [];\nfor (let i = 0; i < records.length; i += batchSize) {\n  batches.push({ json: { vectors: records.slice(i, i + batchSize) } });\n}\n\nreturn batches;"
+        "jsCode": "// OpenAI の embedding レスポンスと Merge All Data の結合データを使って\n// Pinecone upsert 用のバッチを作成\nconst embeddingItems = $input.all();\nconst mergedItems = $('Merge All Data').all();\n\nconst records = [];\nconst count = Math.min(embeddingItems.length, mergedItems.length);\n\nconst toArr = (v) => {\n  if (Array.isArray(v)) return v;\n  if (v === undefined || v === null || v === '') return [''];\n  return [String(v)];\n};\n\nfor (let i = 0; i < count; i++) {\n  const embResponse = embeddingItems[i].json;\n  const row = mergedItems[i].json;\n\n  const id = String(row.id || '');\n  const title = String(row.title || '');\n  const body = String(row.body || '');\n  const url = String(row.url || '');\n  const category = String(row.category || '');\n  // element / zodiac は配列で格納（複数値対応）\n  const element = toArr(row.element);\n  const zodiac = toArr(row.zodiac);\n  const audio_url = String(row.audio_url || '');\n\n  if (!id || !body || !embResponse.data?.[0]?.embedding) continue;\n\n  records.push({\n    id,\n    values: embResponse.data[0].embedding,\n    metadata: { title, body, url, category, element, zodiac, audio_url }\n  });\n}\n\nif (records.length === 0) {\n  return [{ json: { success: true, message: 'No data to sync', count: 0 } }];\n}\n\n// 100件ずつバッチに分割\nconst batchSize = 100;\nconst batches = [];\nfor (let i = 0; i < records.length; i += batchSize) {\n  batches.push({ json: { vectors: records.slice(i, i + batchSize) } });\n}\n\nreturn batches;"
       },
       "id": "code-prepare-upsert",
       "name": "Prepare Upsert",

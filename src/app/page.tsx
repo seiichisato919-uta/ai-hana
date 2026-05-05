@@ -5,6 +5,7 @@ import { useSearchParams, useRouter } from "next/navigation";
 import SearchBox from "@/components/SearchBox";
 import SearchResults from "@/components/SearchResults";
 import type { SearchResult } from "@/lib/types";
+import { detectZodiac, elementToKanji } from "@/lib/zodiac";
 
 function HomeContent() {
   const searchParams = useSearchParams();
@@ -15,6 +16,7 @@ function HomeContent() {
   const [loading, setLoading] = useState(false);
   const [searched, setSearched] = useState(false);
   const [currentQuery, setCurrentQuery] = useState(initialQuery);
+  const [zodiacError, setZodiacError] = useState<string | null>(null);
   const autoSearchDone = useRef(false);
 
   const handleResults = useCallback(
@@ -32,6 +34,18 @@ function HomeContent() {
   useEffect(() => {
     if (initialQuery && !autoSearchDone.current) {
       autoSearchDone.current = true;
+
+      // 星座検出（星座名 + エレメント）
+      const detected = detectZodiac(initialQuery);
+      if (!detected) {
+        setZodiacError(
+          "星座を認識できませんでした。例：『乙女座』『おとめ座』『オトメ座』などを含めて入力してください。"
+        );
+        setSearched(true);
+        setCurrentQuery(initialQuery);
+        return;
+      }
+
       const doAutoSearch = async () => {
         setLoading(true);
         try {
@@ -41,7 +55,11 @@ function HomeContent() {
           const res = await fetch(`${webhookUrl}/ai-hana-search`, {
             method: "POST",
             headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ query: initialQuery }),
+            body: JSON.stringify({
+              query: initialQuery,
+              zodiac: detected.zodiac,
+              element: elementToKanji(detected.element),
+            }),
           });
           const data = await res.json();
           setResults(data.results || []);
@@ -69,7 +87,7 @@ function HomeContent() {
           あなたの悩みに寄り添うコンテンツを見つけます
         </p>
         <p className="text-gray-400 text-sm mt-2">
-          お気軽にあなたの気持ちを入力してください
+          あなたの星座と、あなたの気持ちを入力してください
         </p>
       </div>
 
@@ -77,8 +95,16 @@ function HomeContent() {
       <SearchBox
         onResults={handleResults}
         onLoading={setLoading}
+        onError={setZodiacError}
         initialQuery={initialQuery}
       />
+
+      {/* 星座未検出エラー */}
+      {zodiacError && (
+        <div className="mt-6 w-full max-w-2xl mx-auto p-4 bg-amber-50 border border-amber-200 rounded-xl text-amber-800 text-sm">
+          ⚠️ {zodiacError}
+        </div>
+      )}
 
       {/* 検索結果 */}
       <SearchResults
@@ -88,7 +114,7 @@ function HomeContent() {
       />
 
       {/* 検索後に結果が0件の場合 */}
-      {searched && !loading && results.length === 0 && (
+      {searched && !loading && !zodiacError && results.length === 0 && (
         <div className="mt-8 text-center text-gray-500">
           <p>該当するコンテンツが見つかりませんでした。</p>
           <p className="text-sm mt-1">
