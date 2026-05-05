@@ -26,13 +26,30 @@ export default function RelatedContent({
     const loadRecommendations = async () => {
       setLoading(true);
       try {
+        // 既読履歴を取得＆現在の ID を追加（セッション中ずっと保持）
+        const VIEWED_KEY = "viewedIds";
+        let viewedIds: string[] = [];
+        try {
+          const v = sessionStorage.getItem(VIEWED_KEY);
+          if (v) viewedIds = JSON.parse(v);
+        } catch {
+          // 破損 → 空配列で初期化
+        }
+        if (!viewedIds.includes(currentId)) {
+          viewedIds.push(currentId);
+          sessionStorage.setItem(VIEWED_KEY, JSON.stringify(viewedIds));
+        }
+
         const stored = sessionStorage.getItem("searchResults");
         const allResults: SearchResult[] = stored ? JSON.parse(stored) : [];
 
-        // 現在のコンテンツを除外
-        const remaining = allResults.filter((r) => r.id !== currentId);
+        // 現在のコンテンツ＋既読を除外
+        const viewedSet = new Set(viewedIds);
+        const remaining = allResults.filter(
+          (r) => r.id !== currentId && !viewedSet.has(r.id)
+        );
 
-        // カテゴリ別に最大2件ずつ集める（既存分）
+        // カテゴリ別に最大2件ずつ集める（既存分・既読除外済み）
         const byCategory: Record<Category, SearchResult[]> = {
           newsletter: [],
           podcast: [],
@@ -56,9 +73,11 @@ export default function RelatedContent({
           process.env.NEXT_PUBLIC_N8N_WEBHOOK_URL ||
           "http://localhost:5678/webhook";
 
+        // 除外リスト = 現在ID + 既読履歴 + 既に表示中の候補
         const excludeIds = new Set<string>([
           currentId,
-          ...remaining.map((r) => r.id),
+          ...viewedIds,
+          ...allResults.map((r) => r.id),
         ]);
 
         for (const cat of CATEGORIES) {
