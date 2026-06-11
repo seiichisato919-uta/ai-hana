@@ -7,6 +7,7 @@ export interface SearchResult {
   category: "newsletter" | "podcast" | "paid_product";
   zodiac?: string; // 星座（カンマ区切り。例: "牡牛座" / "牡牛座,獅子座" / ""）
   element?: string; // エレメント（火/地/風/水。カンマ区切り）
+  quality?: string; // クオリティ（活動宮/不動宮/柔軟宮。カンマ区切り）
   audio_url?: string;
 }
 
@@ -18,6 +19,7 @@ export interface ContentData {
   category: string;
   zodiac?: string;
   element?: string;
+  quality?: string;
   audio_url?: string;
 }
 

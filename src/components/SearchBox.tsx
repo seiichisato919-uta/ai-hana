@@ -2,7 +2,7 @@
 
 import { useState } from "react";
 import type { SearchResult } from "@/lib/types";
-import { detectZodiac, elementToKanji } from "@/lib/zodiac";
+import { detectSearch } from "@/lib/zodiac";
 
 interface SearchBoxProps {
   onResults: (results: SearchResult[], query: string) => void;
@@ -23,15 +23,8 @@ export default function SearchBox({
     const trimmed = (searchQuery ?? query).trim();
     if (!trimmed) return;
 
-    // 星座を検出（星座名 + エレメント）
-    const detected = detectZodiac(trimmed);
-    if (!detected) {
-      onError?.(
-        "星座を認識できませんでした。例：『乙女座』『おとめ座』『オトメ座』などを含めて入力してください。"
-      );
-      onResults([], trimmed);
-      return;
-    }
+    // 検索モードと属性を判定（星座 / エレメント / クオリティ / 知りたいことのみ）
+    const detected = detectSearch(trimmed);
     onError?.(null);
 
     onLoading(true);
@@ -43,9 +36,11 @@ export default function SearchBox({
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          query: trimmed,
-          zodiac: detected.zodiac, // 星座名（漢字）
-          element: elementToKanji(detected.element), // エレメント（火/地/風/水）
+          query: detected.query,
+          mode: detected.mode, // zodiac / element / quality / topic
+          zodiac: detected.zodiac, // 星座名（漢字）。なければ ""
+          element: detected.element, // エレメント（火/地/風/水）。なければ ""
+          quality: detected.quality, // クオリティ（活動宮/不動宮/柔軟宮）。なければ ""
         }),
       });
       const data = await res.json();
@@ -74,7 +69,7 @@ export default function SearchBox({
             }
           }}
           placeholder={
-            "あなたの星座と気持ちを教えてください…\n例：「乙女座 仕事のやる気が出ない」「おとめ座 最近出会いがなくて」"
+            "検索したい条件を最初に入れて、気持ちを教えてください…\n例：「乙女座 仕事のやる気が出ない」「風 最近人間関係に疲れている」「活動宮 やる気が出ない」"
           }
           className="w-full h-32 p-5 text-base sm:text-lg rounded-2xl border-2 border-pink-200 focus:border-pink-400 focus:outline-none resize-none bg-white/80 backdrop-blur-sm shadow-lg placeholder:text-sm sm:placeholder:text-base placeholder:text-gray-400 text-gray-700"
         />
@@ -85,6 +80,27 @@ export default function SearchBox({
         >
           相談する
         </button>
+      </div>
+
+      <div className="mt-4 p-4 rounded-2xl bg-white/60 backdrop-blur-sm border border-pink-100 text-sm text-gray-600">
+        <p className="font-medium text-pink-500 mb-2">💡 上手な検索のコツ</p>
+        <p className="mb-2 text-gray-500">
+          検索条件（星座・エレメント・クオリティ）は<span className="font-medium text-gray-700">文章のいちばん最初</span>に入れてください。
+        </p>
+        <ul className="space-y-1.5">
+          <li>
+            <span className="font-medium text-gray-700">星座で探す</span>　例：「<span className="text-pink-500">乙女座</span> 仕事のやる気が出ない」
+          </li>
+          <li>
+            <span className="font-medium text-gray-700">エレメントで探す</span>　例：「<span className="text-pink-500">風</span> 最近人間関係に疲れている」（火・地・風・水）
+          </li>
+          <li>
+            <span className="font-medium text-gray-700">クオリティで探す</span>　例：「<span className="text-pink-500">活動宮</span> 最近人間関係に疲れている」（活動宮・不動宮・柔軟宮）
+          </li>
+          <li>
+            <span className="font-medium text-gray-700">知りたいことだけで探す</span>　例：「最近よく眠れない」
+          </li>
+        </ul>
       </div>
     </div>
   );

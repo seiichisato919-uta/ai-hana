@@ -104,3 +104,87 @@ export function detectElement(
 export function elementToKanji(element: Element): string {
   return ELEMENT_KANJI[element];
 }
+
+// ===== エレメント / クオリティ / モード判定 =====
+
+// 検索モード
+//  zodiac : 星座 + 知りたいこと
+//  element: エレメント + 知りたいこと
+//  quality: クオリティ + 知りたいこと
+//  topic  : 知りたいことのみ
+export type SearchMode = "zodiac" | "element" | "quality" | "topic";
+
+// 先頭トークンとして許可するエレメント1文字（火/地/風/水）
+const ELEMENT_TOKENS: Record<string, string> = {
+  火: "火",
+  地: "地",
+  風: "風",
+  水: "水",
+};
+
+// クオリティ（活動宮/不動宮/柔軟宮）。別名（運動星座/定着星座/変通星座）も許可
+const QUALITY_PATTERNS: Array<{ pattern: RegExp; quality: string }> = [
+  { pattern: /^(活動宮|運動星座)$/, quality: "活動宮" },
+  { pattern: /^(不動宮|定着星座)$/, quality: "不動宮" },
+  { pattern: /^(柔軟宮|変通星座)$/, quality: "柔軟宮" },
+];
+
+export interface DetectedSearch {
+  mode: SearchMode;
+  query: string; // 埋め込み・トピック用テキスト（入力全文）
+  zodiac: string; // 漢字。なければ ""
+  element: string; // 火/地/風/水。なければ ""
+  quality: string; // 活動宮/不動宮/柔軟宮。なければ ""
+}
+
+/**
+ * 入力テキストから検索モードと属性を判定する。
+ * - エレメントは誤検出防止のため「先頭トークン（最初の空白までの語）」が
+ *   火/地/風/水 のときのみ採用する
+ * - クオリティも先頭トークンで判定（複数文字なので安全）
+ * - 星座は従来通りテキスト全体から検出（後方互換）
+ * - いずれも該当しなければ topic（知りたいことのみ）
+ */
+export function detectSearch(text: string): DetectedSearch {
+  const trimmed = text.trim();
+  const first = trimmed.split(/[\s　]+/)[0] ?? "";
+
+  // 1. エレメント: 先頭トークンが火/地/風/水 のときのみ
+  if (ELEMENT_TOKENS[first]) {
+    return {
+      mode: "element",
+      query: trimmed,
+      zodiac: "",
+      element: ELEMENT_TOKENS[first],
+      quality: "",
+    };
+  }
+
+  // 2. クオリティ: 先頭トークン
+  for (const { pattern, quality } of QUALITY_PATTERNS) {
+    if (pattern.test(first)) {
+      return {
+        mode: "quality",
+        query: trimmed,
+        zodiac: "",
+        element: "",
+        quality,
+      };
+    }
+  }
+
+  // 3. 星座: テキスト全体から検出（後方互換）
+  const z = detectZodiac(trimmed);
+  if (z) {
+    return {
+      mode: "zodiac",
+      query: trimmed,
+      zodiac: z.zodiac,
+      element: ELEMENT_KANJI[z.element],
+      quality: "",
+    };
+  }
+
+  // 4. 知りたいことのみ
+  return { mode: "topic", query: trimmed, zodiac: "", element: "", quality: "" };
+}
