@@ -72,6 +72,7 @@ export default function RelatedContent({
           body: JSON.stringify({
             query: detected.query,
             mode: detected.mode,
+            currentId,
             matchZodiacs: match.zodiacs,
             matchElements: match.elements,
             matchQualities: match.qualities,
