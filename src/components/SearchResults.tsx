@@ -1,5 +1,6 @@
 "use client";
 
+import { useEffect } from "react";
 import Link from "next/link";
 import type { SearchResult, Category } from "@/lib/types";
 import { CATEGORY_LABELS, CATEGORY_ICONS, CATEGORIES } from "@/lib/types";
@@ -15,6 +16,22 @@ export default function SearchResults({
   loading,
   query,
 }: SearchResultsProps) {
+  // 表示済みID（tier3 で再表示を許可するため記録）
+  useEffect(() => {
+    if (results.length === 0) return;
+    try {
+      const SHOWN_KEY = "shownIds";
+      let shownIds: string[] = [];
+      const v = sessionStorage.getItem(SHOWN_KEY);
+      if (v) shownIds = JSON.parse(v);
+      const set = new Set(shownIds);
+      for (const r of results) set.add(r.id);
+      sessionStorage.setItem(SHOWN_KEY, JSON.stringify(Array.from(set)));
+    } catch {
+      // sessionStorage 利用不可 → 無視
+    }
+  }, [results]);
+
   if (loading) {
     return (
       <div className="w-full max-w-2xl mx-auto mt-8">

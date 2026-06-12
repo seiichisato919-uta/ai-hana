@@ -5,7 +5,7 @@ import { useSearchParams, useRouter } from "next/navigation";
 import SearchBox from "@/components/SearchBox";
 import SearchResults from "@/components/SearchResults";
 import type { SearchResult } from "@/lib/types";
-import { detectZodiac, elementToKanji } from "@/lib/zodiac";
+import { detectSearch } from "@/lib/zodiac";
 
 function HomeContent() {
   const searchParams = useSearchParams();
@@ -35,16 +35,8 @@ function HomeContent() {
     if (initialQuery && !autoSearchDone.current) {
       autoSearchDone.current = true;
 
-      // 星座検出（星座名 + エレメント）
-      const detected = detectZodiac(initialQuery);
-      if (!detected) {
-        setZodiacError(
-          "星座を認識できませんでした。例：『乙女座』『おとめ座』『オトメ座』などを含めて入力してください。"
-        );
-        setSearched(true);
-        setCurrentQuery(initialQuery);
-        return;
-      }
+      // 4モード判定（星座/エレメント/クオリティ/トピック）
+      const detected = detectSearch(initialQuery);
 
       const doAutoSearch = async () => {
         setLoading(true);
@@ -56,9 +48,11 @@ function HomeContent() {
             method: "POST",
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify({
-              query: initialQuery,
+              query: detected.query,
+              mode: detected.mode,
               zodiac: detected.zodiac,
-              element: elementToKanji(detected.element),
+              element: detected.element,
+              quality: detected.quality,
             }),
           });
           const data = await res.json();

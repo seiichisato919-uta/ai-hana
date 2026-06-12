@@ -52,6 +52,37 @@ export const ZODIAC_TO_ELEMENT: Record<ZodiacKanji, Element> = {
   魚座: "water",
 };
 
+// 星座 → クオリティ（活動宮/不動宮/柔軟宮）
+export const ZODIAC_TO_QUALITY: Record<ZodiacKanji, string> = {
+  牡羊座: "活動宮",
+  蟹座: "活動宮",
+  天秤座: "活動宮",
+  山羊座: "活動宮",
+  牡牛座: "不動宮",
+  獅子座: "不動宮",
+  蠍座: "不動宮",
+  水瓶座: "不動宮",
+  双子座: "柔軟宮",
+  乙女座: "柔軟宮",
+  射手座: "柔軟宮",
+  魚座: "柔軟宮",
+};
+
+// エレメント（漢字1文字）→ そのエレメントに属する星座
+export const ELEMENT_TO_ZODIACS: Record<string, ZodiacKanji[]> = {
+  火: ["牡羊座", "獅子座", "射手座"],
+  地: ["牡牛座", "乙女座", "山羊座"],
+  風: ["双子座", "天秤座", "水瓶座"],
+  水: ["蟹座", "蠍座", "魚座"],
+};
+
+// クオリティ → そのクオリティに属する星座
+export const QUALITY_TO_ZODIACS: Record<string, ZodiacKanji[]> = {
+  活動宮: ["牡羊座", "蟹座", "天秤座", "山羊座"],
+  不動宮: ["牡牛座", "獅子座", "蠍座", "水瓶座"],
+  柔軟宮: ["双子座", "乙女座", "射手座", "魚座"],
+};
+
 // 星座名のパターン（ひらがな・カタカナ・漢字すべて対応）
 const ZODIAC_PATTERNS: Array<{ pattern: RegExp; zodiac: ZodiacKanji }> = [
   { pattern: /牡羊座|おひつじ座|オヒツジ座|おひつじざ|オヒツジザ/, zodiac: "牡羊座" },
@@ -212,4 +243,56 @@ export function detectSearch(text: string): DetectedSearch {
 
   // 4. 知りたいことのみ
   return { mode: "topic", query: trimmed, zodiac: "", element: "", quality: "" };
+}
+
+// ===== レコメンド用: モード → 一致属性集合 =====
+
+// レコメンド時に「一致」とみなす属性の集合。
+// 検索時よりも広めに取る（例: エレメント検索なら、そのエレメントに属する
+// 全星座も「一致」とみなす）。空配列の属性はフィルタに使わない。
+export interface RecommendMatch {
+  zodiacs: string[]; // 一致とみなす星座（漢字）
+  elements: string[]; // 一致とみなすエレメント（火/地/風/水）
+  qualities: string[]; // 一致とみなすクオリティ（活動宮/不動宮/柔軟宮）
+}
+
+/**
+ * 検索モードと属性から、レコメンドで「一致」とみなす属性集合を算出する。
+ * - zodiac : その星座 + 同エレメント + 同クオリティ
+ * - element: そのエレメント + そのエレメントに属する星座
+ * - quality: そのクオリティ + そのクオリティに属する星座
+ * - topic  : すべて空（関連性のみで出す）
+ */
+export function getRecommendMatch(detected: DetectedSearch): RecommendMatch {
+  const { mode, zodiac, element, quality } = detected;
+
+  if (mode === "zodiac" && zodiac) {
+    const z = zodiac as ZodiacKanji;
+    const el = ZODIAC_TO_ELEMENT[z];
+    const ql = ZODIAC_TO_QUALITY[z];
+    return {
+      zodiacs: [zodiac],
+      elements: el ? [ELEMENT_KANJI[el]] : [],
+      qualities: ql ? [ql] : [],
+    };
+  }
+
+  if (mode === "element" && element) {
+    return {
+      zodiacs: ELEMENT_TO_ZODIACS[element] ?? [],
+      elements: [element],
+      qualities: [],
+    };
+  }
+
+  if (mode === "quality" && quality) {
+    return {
+      zodiacs: QUALITY_TO_ZODIACS[quality] ?? [],
+      elements: [],
+      qualities: [quality],
+    };
+  }
+
+  // topic: 関連性のみ
+  return { zodiacs: [], elements: [], qualities: [] };
 }

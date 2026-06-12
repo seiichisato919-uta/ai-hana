@@ -3,12 +3,8 @@
 import { useEffect, useState } from "react";
 import Link from "next/link";
 import type { SearchResult, Category } from "@/lib/types";
-import {
-  CATEGORY_LABELS,
-  CATEGORY_ICONS,
-  CATEGORIES,
-} from "@/lib/types";
-import { detectZodiac, elementToKanji } from "@/lib/zodiac";
+import { CATEGORY_LABELS, CATEGORY_ICONS } from "@/lib/types";
+import { detectSearch, getRecommendMatch } from "@/lib/zodiac";
 
 interface RelatedContentProps {
   currentId: string;
@@ -25,104 +21,82 @@ export default function RelatedContent({
   useEffect(() => {
     const loadRecommendations = async () => {
       setLoading(true);
+
+      // クエリ（知りたいこと）がない場合はレコメンドを出さない
+      if (!query.trim()) {
+        setRecommendations([]);
+        setLoading(false);
+        return;
+      }
+
       try {
-        // 既読履歴を取得＆現在の ID を追加（セッション中ずっと保持）
-        const VIEWED_KEY = "viewedIds";
-        let viewedIds: string[] = [];
+        // 開いたコンテンツ（= 二度とおすすめに出さない）
+        const OPENED_KEY = "openedIds";
+        let openedIds: string[] = [];
         try {
-          const v = sessionStorage.getItem(VIEWED_KEY);
-          if (v) viewedIds = JSON.parse(v);
+          const v = sessionStorage.getItem(OPENED_KEY);
+          if (v) openedIds = JSON.parse(v);
         } catch {
-          // 破損 → 空配列で初期化
+          openedIds = [];
         }
-        if (!viewedIds.includes(currentId)) {
-          viewedIds.push(currentId);
-          sessionStorage.setItem(VIEWED_KEY, JSON.stringify(viewedIds));
-        }
-
-        const stored = sessionStorage.getItem("searchResults");
-        const allResults: SearchResult[] = stored ? JSON.parse(stored) : [];
-
-        // 現在のコンテンツ＋既読を除外
-        const viewedSet = new Set(viewedIds);
-        const remaining = allResults.filter(
-          (r) => r.id !== currentId && !viewedSet.has(r.id)
-        );
-
-        // カテゴリ別に最大2件ずつ集める（既存分・既読除外済み）
-        const byCategory: Record<Category, SearchResult[]> = {
-          newsletter: [],
-          podcast: [],
-          paid_product: [],
-        };
-        for (const r of remaining) {
-          const cat = r.category as Category;
-          if (byCategory[cat] && byCategory[cat].length < 2) {
-            byCategory[cat].push(r);
+        // 今まさに開いているコンテンツを追加
+        if (!openedIds.includes(currentId)) {
+          openedIds.push(currentId);
+          try {
+            sessionStorage.setItem(OPENED_KEY, JSON.stringify(openedIds));
+          } catch {
+            // 無視
           }
         }
 
-        // 不足分（各カテゴリで2件未満）を recommend API で補充
-        const detected = detectZodiac(query);
-        const zodiacName = detected ? detected.zodiac : "";
-        const elementKanji = detected
-          ? elementToKanji(detected.element)
-          : "";
+        // 過去に表示されたが開かれていないコンテンツ（第3優先で再表示可）
+        let shownIds: string[] = [];
+        try {
+          const v = sessionStorage.getItem("shownIds");
+          if (v) shownIds = JSON.parse(v);
+        } catch {
+          shownIds = [];
+        }
+
+        // 検索モードを判定し、レコメンドで「一致」とみなす属性集合を算出
+        const detected = detectSearch(query);
+        const match = getRecommendMatch(detected);
 
         const webhookUrl =
           process.env.NEXT_PUBLIC_N8N_WEBHOOK_URL ||
           "http://localhost:5678/webhook";
 
-        // 除外リスト = 現在ID + 既読履歴 + 既に表示中の候補
-        const excludeIds = new Set<string>([
-          currentId,
-          ...viewedIds,
-          ...allResults.map((r) => r.id),
-        ]);
+        const res = await fetch(`${webhookUrl}/ai-hana-recommend`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            query: detected.query,
+            mode: detected.mode,
+            matchZodiacs: match.zodiacs,
+            matchElements: match.elements,
+            matchQualities: match.qualities,
+            openedIds,
+            shownIds,
+            perCategory: 2,
+          }),
+        });
+        const data = await res.json();
+        const recs: SearchResult[] = data.recommendations || [];
 
-        for (const cat of CATEGORIES) {
-          // 各カテゴリで2件揃うまで API を呼び続ける
-          // ただし、関連コンテンツが尽きたら break（無関係なものは出さない）
-          let safetyCount = 0;
-          while (byCategory[cat].length < 2 && safetyCount < 3) {
-            safetyCount++;
-            try {
-              const res = await fetch(`${webhookUrl}/ai-hana-recommend`, {
-                method: "POST",
-                headers: { "Content-Type": "application/json" },
-                body: JSON.stringify({
-                  id: currentId,
-                  excludeIds: Array.from(excludeIds),
-                  needCategory: cat,
-                  zodiac: zodiacName,
-                  element: elementKanji,
-                }),
-              });
-              const data = await res.json();
-              const recs: SearchResult[] = data.recommendations || [];
-              if (recs.length === 0) break; // 該当コンテンツが尽きた
-
-              const newRec = recs[0];
-              if (excludeIds.has(newRec.id)) break; // 重複（無限ループ防止）
-
-              byCategory[cat].push(newRec);
-              excludeIds.add(newRec.id);
-            } catch {
-              break;
-            }
+        // 表示するレコメンドのIDを shownIds に追加（次回以降の第3優先で活用）
+        if (recs.length > 0) {
+          try {
+            const set = new Set(shownIds);
+            for (const r of recs) set.add(r.id);
+            sessionStorage.setItem("shownIds", JSON.stringify(Array.from(set)));
+          } catch {
+            // 無視
           }
         }
 
-        // 最終結果（カテゴリ順に並べる）
-        const finalRecs = [
-          ...byCategory.newsletter,
-          ...byCategory.podcast,
-          ...byCategory.paid_product,
-        ];
-
-        setRecommendations(finalRecs);
+        setRecommendations(recs);
       } catch {
-        // sessionStorage のパースエラー等
+        setRecommendations([]);
       } finally {
         setLoading(false);
       }
@@ -130,11 +104,6 @@ export default function RelatedContent({
 
     loadRecommendations();
   }, [currentId, query]);
-
-  // カード遷移時に現在のレコメンドを sessionStorage に保存
-  const handleCardClick = () => {
-    sessionStorage.setItem("searchResults", JSON.stringify(recommendations));
-  };
 
   if (loading) {
     return (
@@ -163,7 +132,6 @@ export default function RelatedContent({
             <Link
               key={rec.id}
               href={`/contents/${rec.id}?q=${encodeURIComponent(query)}`}
-              onClick={handleCardClick}
               className="block p-4 bg-white/80 backdrop-blur-sm rounded-xl border border-pink-100 hover:border-pink-300 hover:shadow-lg transition-all group"
             >
               <div className="flex items-center gap-2 mb-2">
