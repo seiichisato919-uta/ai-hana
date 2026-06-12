@@ -122,6 +122,23 @@ const ELEMENT_TOKENS: Record<string, string> = {
   水: "水",
 };
 
+// 「エレメントそのものを尋ねる言い回し」を先頭で検出するパターン。
+// 例:「水の特徴を教えて」「火について」「風のエレメント」「地タイプ」「エレメントの水」
+// 誤検出防止: 助詞や特定語が続くときだけ反応させ、「水曜」「水道」「風邪」「火事」「地元」等は除外する。
+const ELEMENT_PHRASE_PATTERNS: RegExp[] = [
+  /^(火|地|風|水)(?:の特徴|の性質|の人|のエレメント|というエレメント|エレメント|タイプ|について|とは)/,
+  /^エレメントの(火|地|風|水)/,
+];
+
+// 先頭が「エレメント語＋説明的表現」のとき、そのエレメント（火/地/風/水）を返す。該当しなければ null
+function detectLeadingElement(text: string): string | null {
+  for (const pattern of ELEMENT_PHRASE_PATTERNS) {
+    const m = text.match(pattern);
+    if (m) return m[1];
+  }
+  return null;
+}
+
 // クオリティ（活動宮/不動宮/柔軟宮）。別名（運動星座/定着星座/変通星座）も許可
 const QUALITY_PATTERNS: Array<{ pattern: RegExp; quality: string }> = [
   { pattern: /^(活動宮|運動星座)$/, quality: "活動宮" },
@@ -149,13 +166,19 @@ export function detectSearch(text: string): DetectedSearch {
   const trimmed = text.trim();
   const first = trimmed.split(/[\s　]+/)[0] ?? "";
 
-  // 1. エレメント: 先頭トークンが火/地/風/水 のときのみ
-  if (ELEMENT_TOKENS[first]) {
+  // 1. エレメント:
+  //   (a) 先頭トークンが火/地/風/水 単独（例:「水 最近疲れた」）
+  //   (b) 先頭が「エレメント語＋説明的表現」（例:「水の特徴を教えて」「火について」）
+  //   いずれも、字面が似た「水瓶座」（実エレメントは風）を誤って拾わないための明示判定
+  const elementFromToken = ELEMENT_TOKENS[first];
+  const elementFromPhrase = detectLeadingElement(trimmed);
+  const element = elementFromToken || elementFromPhrase;
+  if (element) {
     return {
       mode: "element",
       query: trimmed,
       zodiac: "",
-      element: ELEMENT_TOKENS[first],
+      element,
       quality: "",
     };
   }
