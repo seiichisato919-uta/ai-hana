@@ -139,11 +139,13 @@ function detectLeadingElement(text: string): string | null {
   return null;
 }
 
-// クオリティ（活動宮/不動宮/柔軟宮）。別名（運動星座/定着星座/変通星座）も許可
+// クオリティ（活動宮/不動宮/柔軟宮）。別名（運動星座/定着星座/変通星座）も許可。
+// 「活動宮の特徴を教えて」のように説明的表現が続いても拾えるよう、先頭一致（末尾$なし）で判定する。
+// 末尾が「宮」で終わる固有語のため、「活動的」「柔軟に」等を誤検出することはない。
 const QUALITY_PATTERNS: Array<{ pattern: RegExp; quality: string }> = [
-  { pattern: /^(活動宮|運動星座)$/, quality: "活動宮" },
-  { pattern: /^(不動宮|定着星座)$/, quality: "不動宮" },
-  { pattern: /^(柔軟宮|変通星座)$/, quality: "柔軟宮" },
+  { pattern: /^(活動宮|運動星座)/, quality: "活動宮" },
+  { pattern: /^(不動宮|定着星座)/, quality: "不動宮" },
+  { pattern: /^(柔軟宮|変通星座)/, quality: "柔軟宮" },
 ];
 
 export interface DetectedSearch {
@@ -183,9 +185,9 @@ export function detectSearch(text: string): DetectedSearch {
     };
   }
 
-  // 2. クオリティ: 先頭トークン
+  // 2. クオリティ: 先頭が活動宮/不動宮/柔軟宮（説明的表現が続いてもOK）
   for (const { pattern, quality } of QUALITY_PATTERNS) {
-    if (pattern.test(first)) {
+    if (pattern.test(trimmed)) {
       return {
         mode: "quality",
         query: trimmed,
