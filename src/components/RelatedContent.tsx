@@ -73,6 +73,7 @@ export default function RelatedContent({
             query: detected.query,
             mode: detected.mode,
             currentId,
+            zodiac: detected.zodiac,
             matchZodiacs: match.zodiacs,
             matchElements: match.elements,
             matchQualities: match.qualities,
